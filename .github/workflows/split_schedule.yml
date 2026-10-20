@@ -1,0 +1,36 @@
+name: Auto Drive File Splitter
+
+on:
+  schedule:
+    # Runs every 30 minutes at off-peak minutes (:07 and :37) to prevent queue drops
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: drive-file-splitter
+  cancel-in-progress: false
+
+jobs:
+  split-and-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Splitter Script
+        env:
+          GOOGLE_DRIVE_TOKEN_JSON: ${{ secrets.GOOGLE_DRIVE_TOKEN_JSON }}
+          SOURCE_FOLDER_ID: ${{ secrets.SOURCE_FOLDER_ID }}
+          OUTPUT_FOLDER_ID: ${{ secrets.OUTPUT_FOLDER_ID }}
+        run: python split_drive.py
