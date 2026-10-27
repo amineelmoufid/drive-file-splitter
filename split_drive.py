@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import traceback
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -16,7 +17,6 @@ LIMIT_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Fallback for local testing if secrets not in environment
 if not SOURCE_FOLDER_ID or not OUTPUT_FOLDER_ID:
-    # Check if a local config exists
     local_cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "folders.json")
     if os.path.exists(local_cfg):
         with open(local_cfg, 'r') as cf:
@@ -26,6 +26,10 @@ if not SOURCE_FOLDER_ID or not OUTPUT_FOLDER_ID:
 
 TEMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_drive_sync")
 os.makedirs(TEMP_DIR, exist_ok=True)
+
+def sanitize_filename(name):
+    """Removes _compressed_<timestamp> to ensure standard naming conventions."""
+    return re.sub(r'_compressed_\d+', '', name)
 
 def mask_title(title):
     """Anonymizes filenames in public logs for maximum privacy."""
@@ -111,10 +115,26 @@ def main():
 
     service = get_drive_service()
 
-    # 1. Deduplicate output folder
-    print("Checking destination folder for duplicates...")
+    # 1. Clean existing files with _compressed_ in destination folder
+    print("Checking destination folder for filenames needing cleanup...")
     output_files = list_all_files(service, OUTPUT_FOLDER_ID)
+    cleaned_names_count = 0
+    for f in output_files:
+        orig_name = f['name']
+        clean_name = sanitize_filename(orig_name)
+        if clean_name != orig_name:
+            try:
+                service.files().update(fileId=f['id'], body={'name': clean_name}).execute()
+                f['name'] = clean_name
+                cleaned_names_count += 1
+            except Exception as e:
+                print(f"  Warning: failed to rename {mask_title(orig_name)}: {e}")
 
+    if cleaned_names_count > 0:
+        print(f"Renamed {cleaned_names_count} output file(s) to remove '_compressed_'.\n")
+
+    # 2. Deduplicate output folder
+    print("Checking destination folder for duplicates...")
     files_by_title = {}
     for f in output_files:
         files_by_title.setdefault(f['name'], []).append(f)
@@ -134,7 +154,7 @@ def main():
 
     print(f"Destination check complete: {len(existing_files)} items verified ({cleaned_dups} duplicates cleaned).\n")
 
-    # 2. Process source files
+    # 3. Process source files
     print("Scanning source folder...")
     source_files = list_all_files(service, SOURCE_FOLDER_ID)
     print(f"Total source items: {len(source_files)}.\n")
@@ -144,10 +164,11 @@ def main():
     fail_count = 0
 
     for file in source_files:
-        file_title = file['name']
+        raw_title = file['name']
+        clean_title = sanitize_filename(raw_title)
         file_size = int(file.get('size', 0))
         file_id = file['id']
-        masked = mask_title(file_title)
+        masked = mask_title(clean_title)
 
         if file_size == 0:
             continue
@@ -156,7 +177,7 @@ def main():
 
         try:
             if file_size > LIMIT_SIZE:
-                name, ext = os.path.splitext(file_title)
+                name, ext = os.path.splitext(clean_title)
                 p1_title = f"{name}_part1{ext}"
                 p2_title = f"{name}_part2{ext}"
 
@@ -165,7 +186,7 @@ def main():
                     continue
 
                 print(f"Processing (Split > 10MB): {masked} ({file_size / (1024*1024):.2f} MB)")
-                local_temp_path = os.path.join(TEMP_DIR, file_title)
+                local_temp_path = os.path.join(TEMP_DIR, raw_title)
                 temp_files_to_clean.append(local_temp_path)
 
                 download_file(service, file_id, local_temp_path)
@@ -183,17 +204,17 @@ def main():
                 print(f"  Successfully uploaded parts for {masked}")
                 success_count += 1
             else:
-                if file_title in existing_files:
+                if clean_title in existing_files:
                     skipped_count += 1
                     continue
 
                 print(f"Processing (Direct <= 10MB): {masked} ({file_size / (1024*1024):.2f} MB)")
-                local_temp_path = os.path.join(TEMP_DIR, file_title)
+                local_temp_path = os.path.join(TEMP_DIR, raw_title)
                 temp_files_to_clean.append(local_temp_path)
 
                 download_file(service, file_id, local_temp_path)
-                upload_file(service, file_title, local_temp_path, OUTPUT_FOLDER_ID)
-                existing_files.add(file_title)
+                upload_file(service, clean_title, local_temp_path, OUTPUT_FOLDER_ID)
+                existing_files.add(clean_title)
 
                 print(f"  Successfully uploaded {masked}")
                 success_count += 1

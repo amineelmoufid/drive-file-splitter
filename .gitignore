@@ -1,6 +1,8 @@
 client_secrets.json
 client_secret_*.json
 token.json
+folders.json
+update_token_secret.py
 temp_drive_sync/
 __pycache__/
 *.pyc
