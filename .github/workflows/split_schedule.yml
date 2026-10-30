@@ -35,6 +35,14 @@ jobs:
           OUTPUT_FOLDER_ID: ${{ secrets.OUTPUT_FOLDER_ID }}
         run: python split_drive.py
 
+      - name: Run Shared Folder Synchronization
+        env:
+          GOOGLE_DRIVE_TOKEN_JSON: ${{ secrets.GOOGLE_DRIVE_TOKEN_JSON }}
+          STRUCTURED_FOLDER_ID: 10GXi-A6ERI6_bpZXG1kUoBtE8ptGy0_b
+          RAW_TRANSCRIPTS_FOLDER_ID: 1obO_d69TfTOdJ4OMzsEDNCiza-DjRcrg
+          SHARED_FOLDER_ID: 1KI8Cw5scdk4LHOc4SQydG5cqH5UzMDLf
+        run: python sync_shared_folder.py
+
       - name: Run NotebookLM Synchronization
         env:
           GOOGLE_DRIVE_TOKEN_JSON: ${{ secrets.GOOGLE_DRIVE_TOKEN_JSON }}
