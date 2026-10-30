@@ -1,5 +1,6 @@
 import io
 import json
+import math
 import os
 import re
 import traceback
@@ -61,21 +62,23 @@ def get_drive_service():
 
     return build('drive', 'v3', credentials=creds)
 
-def split_file(local_path, file_size):
-    part1_size = file_size // 2
-    part2_size = file_size - part1_size
-
+def split_file(local_path, file_size, max_size=LIMIT_SIZE):
+    num_parts = math.ceil(file_size / max_size)
     name, ext = os.path.splitext(local_path)
-    part1_path = f"{name}_part1{ext}"
-    part2_path = f"{name}_part2{ext}"
+    part_paths = []
+
+    base_size = file_size // num_parts
+    remainder = file_size % num_parts
 
     with open(local_path, 'rb') as f:
-        with open(part1_path, 'wb') as out1:
-            out1.write(f.read(part1_size))
-        with open(part2_path, 'wb') as out2:
-            out2.write(f.read(part2_size))
+        for i in range(1, num_parts + 1):
+            part_path = f"{name}_part{i}{ext}"
+            part_paths.append(part_path)
+            curr_size = base_size + (1 if i <= remainder else 0)
+            with open(part_path, 'wb') as out_f:
+                out_f.write(f.read(curr_size))
 
-    return part1_path, part2_path
+    return part_paths
 
 def list_all_files(service, folder_id):
     files = []
@@ -177,31 +180,28 @@ def main():
 
         try:
             if file_size > LIMIT_SIZE:
+                num_parts = math.ceil(file_size / LIMIT_SIZE)
                 name, ext = os.path.splitext(clean_title)
-                p1_title = f"{name}_part1{ext}"
-                p2_title = f"{name}_part2{ext}"
+                expected_parts = [f"{name}_part{i}{ext}" for i in range(1, num_parts + 1)]
 
-                if p1_title in existing_files and p2_title in existing_files:
+                if all(pt in existing_files for pt in expected_parts):
                     skipped_count += 1
                     continue
 
-                print(f"Processing (Split > 10MB): {masked} ({file_size / (1024*1024):.2f} MB)")
+                print(f"Processing (Dynamic Split into {num_parts} parts): {masked} ({file_size / (1024*1024):.2f} MB)")
                 local_temp_path = os.path.join(TEMP_DIR, raw_title)
                 temp_files_to_clean.append(local_temp_path)
 
                 download_file(service, file_id, local_temp_path)
-                p1_path, p2_path = split_file(local_temp_path, file_size)
-                temp_files_to_clean.extend([p1_path, p2_path])
+                part_paths = split_file(local_temp_path, file_size, LIMIT_SIZE)
+                temp_files_to_clean.extend(part_paths)
 
-                if p1_title not in existing_files:
-                    upload_file(service, p1_title, p1_path, OUTPUT_FOLDER_ID)
-                    existing_files.add(p1_title)
+                for p_title, p_path in zip(expected_parts, part_paths):
+                    if p_title not in existing_files:
+                        upload_file(service, p_title, p_path, OUTPUT_FOLDER_ID)
+                        existing_files.add(p_title)
 
-                if p2_title not in existing_files:
-                    upload_file(service, p2_title, p2_path, OUTPUT_FOLDER_ID)
-                    existing_files.add(p2_title)
-
-                print(f"  Successfully uploaded parts for {masked}")
+                print(f"  Successfully uploaded all {num_parts} parts for {masked}")
                 success_count += 1
             else:
                 if clean_title in existing_files:
