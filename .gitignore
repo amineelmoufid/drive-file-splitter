@@ -3,6 +3,8 @@ client_secret_*.json
 token.json
 folders.json
 update_token_secret.py
+update_notebooklm_secret.py
+*.log
 temp_drive_sync/
 __pycache__/
 *.pyc

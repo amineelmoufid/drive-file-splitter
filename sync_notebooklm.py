@@ -202,9 +202,11 @@ async def main():
 
             cache = notebook_sources_cache.get(nb_id)
             existing_drive_ids = cache['drive_ids'] if cache else set()
+            existing_titles = cache['titles'] if cache else set()
 
-            # STRICT ANTI-DUPLICATE CHECK
-            if file_id in existing_drive_ids:
+            # STRICT ANTI-DUPLICATE CHECK (Dual-Key: Google Drive ID & Title)
+            clean_file_title = file_name.strip()
+            if file_id in existing_drive_ids or clean_file_title in existing_titles:
                 total_already_present += 1
                 continue
 
@@ -214,11 +216,12 @@ async def main():
                 plan = SourceAddDrivePlan(
                     notebook_id=nb_id,
                     file_id=file_id,
-                    title=file_name,
+                    title=clean_file_title,
                     mime_type="google-doc"
                 )
                 await execute_source_add_drive(client, plan)
                 existing_drive_ids.add(file_id)
+                existing_titles.add(clean_file_title)
                 total_imported += 1
                 print(f"  Successfully imported '{masked}' into [{nb_name}].")
                 # Polite pacing to avoid Google RPC rate limiting
