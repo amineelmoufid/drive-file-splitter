@@ -4,6 +4,7 @@ token.json
 folders.json
 update_token_secret.py
 update_notebooklm_secret.py
+trigger_workflow.py
 *.log
 temp_drive_sync/
 __pycache__/
