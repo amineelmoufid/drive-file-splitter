@@ -5,6 +5,8 @@ folders.json
 update_token_secret.py
 update_notebooklm_secret.py
 trigger_workflow.py
+temp_audio_merge/
+v2_notebooks.json
 *.log
 temp_drive_sync/
 __pycache__/

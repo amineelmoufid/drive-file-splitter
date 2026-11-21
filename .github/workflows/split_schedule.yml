@@ -48,3 +48,11 @@ jobs:
           GOOGLE_DRIVE_TOKEN_JSON: ${{ secrets.GOOGLE_DRIVE_TOKEN_JSON }}
           NOTEBOOKLM_STORAGE_STATE_JSON: ${{ secrets.NOTEBOOKLM_STORAGE_STATE_JSON }}
         run: python sync_notebooklm.py
+
+      - name: Run Audio Merge & NotebookLM Audio Export
+        env:
+          GOOGLE_DRIVE_TOKEN_JSON: ${{ secrets.GOOGLE_DRIVE_TOKEN_JSON }}
+          NOTEBOOKLM_STORAGE_STATE_JSON: ${{ secrets.NOTEBOOKLM_STORAGE_STATE_JSON }}
+          OUTPUT_FOLDER_ID: ${{ secrets.OUTPUT_FOLDER_ID }}
+          AUDIO3_FOLDER_ID: 1iqXltmHyKeAQuCcnMinnEIsV_OBV-uDJ
+        run: python merge_and_sync_audios.py

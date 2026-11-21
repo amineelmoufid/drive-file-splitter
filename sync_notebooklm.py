@@ -24,34 +24,34 @@ SCOPES = ['https://www.googleapis.com/auth/drive']
 STRUCTURED_FOLDER_ID = os.environ.get('STRUCTURED_FOLDER_ID', '10GXi-A6ERI6_bpZXG1kUoBtE8ptGy0_b')
 RAW_TRANSCRIPTS_FOLDER_ID = os.environ.get('RAW_TRANSCRIPTS_FOLDER_ID', '1obO_d69TfTOdJ4OMzsEDNCiza-DjRcrg')
 
-# NotebookLM Target Notebooks Mapping
+# NotebookLM Target Notebooks Mapping (V2 Projects)
 NOTEBOOKS = {
     'Fiscality': {
-        'id': '1ba0a12f-9607-4b0b-a51f-0fcefca93c26',
+        'id': 'cba7bdfe-6db1-43c9-9c1d-712efdeb1f21',
         'keywords': ['fiscalite', 'fiscale', 'fiscal', 'fisc']
     },
     'Gestion': {
-        'id': '2da45a06-2036-4e0a-a4c4-bf00535eb51e',
+        'id': 'eff69696-6f07-43b6-9c86-3d46f4b76cce',
         'keywords': ['gestion']
     },
     'Comptability': {
-        'id': '888a0b4d-d7b3-47c4-a5c4-300e9b46da03',
+        'id': 'df1666be-f497-48ba-ac37-6927369dbfe7',
         'keywords': ['comptabilite', 'comptability', 'compta']
     },
     'Finance': {
-        'id': 'f2059b83-6536-4686-b388-213c088d2f1d',
+        'id': '3018a305-fb67-49fc-8a58-d8062222602d',
         'keywords': ['finance', 'fin']
     },
     'Econometry': {
-        'id': '6b0f93d4-8bb1-4f00-9c02-ce4a88270b57',
+        'id': '8f43b375-dd8b-4ab1-b2b8-879f99600d60',
         'keywords': ['econometrie', 'econometry', 'econo', 'eco']
     },
     'Marche': {
-        'id': '9376c9e2-7d9e-4a65-8f37-487f15da8fb0',
+        'id': 'd77bd979-c913-4e15-b55a-a708d7d7c214',
         'keywords': ['marche', 'bours']
     },
     'Adm': {
-        'id': '33f71335-5cb2-436b-b36f-390ccc47949b',
+        'id': 'c075ed40-6624-4e92-bf95-0befdb509cb0',
         'keywords': ['admin', 'adm']
     }
 }
