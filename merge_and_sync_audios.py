@@ -173,10 +173,18 @@ def merge_lesson_audio(drive_service, lesson_info, canonical_name, local_merged_
                     escaped_sp = os.path.abspath(sp).replace('\\', '/')
                     f.write(f"file '{escaped_sp}'\n")
 
-            cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_list, '-c', 'copy', local_merged_path]
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            if proc.returncode != 0:
-                print(f"  Warning: ffmpeg failed ({proc.stderr[:150] if proc.stderr else 'no err'}), falling back to binary concatenation...")
+            ffmpeg_ok = False
+            try:
+                cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_list, '-c', 'copy', local_merged_path]
+                proc = subprocess.run(cmd, capture_output=True, text=True)
+                if proc.returncode == 0:
+                    ffmpeg_ok = True
+                else:
+                    print(f"  Warning: ffmpeg failed ({proc.stderr[:150] if proc.stderr else 'no err'}), falling back to binary concatenation...")
+            except (FileNotFoundError, Exception) as fe:
+                print(f"  Notice: ffmpeg not available ({fe}), falling back to binary concatenation...")
+
+            if not ffmpeg_ok:
                 with open(local_merged_path, 'wb') as outfile:
                     for sp in sub_merged_paths:
                         with open(sp, 'rb') as infile:
