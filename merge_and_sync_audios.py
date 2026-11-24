@@ -199,6 +199,106 @@ def merge_lesson_audio(drive_service, lesson_info, canonical_name, local_merged_
                 except Exception:
                     pass
 
+def self_heal_drive_audio3(drive_service):
+    """
+    Scans AUDIO3_FOLDER_ID and permanently eliminates duplicate files
+    and obsolete legacy alias names.
+    """
+    files = list_all_files(drive_service, AUDIO3_FOLDER_ID)
+    grouped = {}
+    for f in files:
+        name_lower = f['name'].lower()
+        grouped.setdefault(name_lower, []).append(f)
+
+    deleted_count = 0
+    for name_lower, file_list in grouped.items():
+        if len(file_list) > 1:
+            file_list.sort(key=lambda x: x.get('createdTime') or x.get('modifiedTime') or x['id'], reverse=True)
+            to_delete = file_list[1:]
+            for dup in to_delete:
+                try:
+                    drive_service.files().delete(fileId=dup['id']).execute()
+                    print(f"[AUTO-HEAL DRIVE] Deleted duplicate of '{mask_title(dup['name'])}' (ID: {dup['id']})")
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"[AUTO-HEAL DRIVE ERROR] Could not delete {dup['id']}: {e}")
+
+    alias_pairs = [
+        ('comptabilité 1.opus', 'compta 1.opus'),
+        ('econometry 1.opus', 'eco 1.opus'),
+        ('fiscale 5.opus', 'fisc 5.opus'),
+        ('fiscale 7.opus', 'fisc 7.opus'),
+        ('fiscalite 8.opus', 'fisc 8.opus'),
+    ]
+    cur_names = {f['name'].lower(): f['id'] for f in list_all_files(drive_service, AUDIO3_FOLDER_ID)}
+    for alias_name, canonical_name in alias_pairs:
+        if alias_name in cur_names and canonical_name in cur_names:
+            alias_id = cur_names[alias_name]
+            try:
+                drive_service.files().delete(fileId=alias_id).execute()
+                print(f"[AUTO-HEAL DRIVE] Deleted legacy alias '{mask_title(alias_name)}' in favor of '{mask_title(canonical_name)}'")
+                deleted_count += 1
+            except Exception:
+                pass
+
+    if deleted_count > 0:
+        print(f"[AUTO-HEAL DRIVE] Cleaned {deleted_count} duplicate/alias file(s) from 'audio 3'.\n")
+    return deleted_count
+
+async def self_heal_notebooklm(client, nb_id, nb_name):
+    """
+    Scans a NotebookLM project, eliminates duplicate sources with identical titles,
+    and cleans obsolete legacy alias titles if canonical exists.
+    """
+    try:
+        sources = await client.sources.list(nb_id)
+    except Exception as e:
+        print(f"[AUTO-HEAL NBLM] Could not fetch sources for {nb_name}: {e}")
+        return 0, {}
+
+    grouped = {}
+    for s in sources:
+        title = getattr(s, 'title', None)
+        if title:
+            grouped.setdefault(title.strip().lower(), []).append(s)
+
+    deleted_count = 0
+    cleaned_sources_map = {}
+    for title_lower, s_list in grouped.items():
+        primary = s_list[0]
+        cleaned_sources_map[primary.title] = primary.id
+        if len(s_list) > 1:
+            for dup in s_list[1:]:
+                try:
+                    await client.sources.delete(nb_id, dup.id)
+                    print(f"[AUTO-HEAL NBLM] Deleted duplicate source '{mask_title(dup.title)}' in {nb_name} (ID: {dup.id})")
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"[AUTO-HEAL NBLM ERROR] Could not delete {dup.id}: {e}")
+
+    alias_pairs = [
+        ('comptabilité 1.opus', 'compta 1.opus'),
+        ('econometry 1.opus', 'eco 1.opus'),
+        ('fiscale 5.opus', 'fisc 5.opus'),
+        ('fiscale 7.opus', 'fisc 7.opus'),
+        ('fiscalite 8.opus', 'fisc 8.opus'),
+    ]
+    cur_titles = {k.lower(): (k, v) for k, v in cleaned_sources_map.items()}
+    for alias_name, canonical_name in alias_pairs:
+        if alias_name in cur_titles and canonical_name in cur_titles:
+            orig_title, s_id = cur_titles[alias_name]
+            try:
+                await client.sources.delete(nb_id, s_id)
+                print(f"[AUTO-HEAL NBLM] Deleted legacy alias source '{mask_title(orig_title)}' in {nb_name}")
+                deleted_count += 1
+                cleaned_sources_map.pop(orig_title, None)
+            except Exception:
+                pass
+
+    if deleted_count > 0:
+        print(f"[AUTO-HEAL NBLM] Cleaned {deleted_count} duplicate/alias source(s) from [{nb_name} - V2].")
+    return deleted_count, cleaned_sources_map
+
 async def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -218,6 +318,7 @@ async def main():
     print(f"Total canonical consolidated lessons: {len(grouped_lessons)}\n")
 
     print("Scanning destination 'audio 3' Google Drive folder...")
+    self_heal_drive_audio3(drive_service)
     existing_audio3_files = list_all_files(drive_service, AUDIO3_FOLDER_ID)
     existing_drive_map = {f['name']: f['id'] for f in existing_audio3_files}
     print(f"Existing files in 'audio 3' folder: {len(existing_drive_map)}\n")
@@ -229,20 +330,19 @@ async def main():
         email = await client.get_account_email()
         print(f"Account: {email}\n")
 
-        # Pre-fetch existing sources for all 7 V2 notebooks
+        # Pre-fetch existing sources for all 7 V2 notebooks & self-heal duplicates
         notebook_sources_cache = {}
         for nb_name, nb_data in NOTEBOOKS.items():
             nb_id = nb_data['id']
             try:
-                sources = await client.sources.list(nb_id)
-                sources_map = {s.title: s.id for s in sources if getattr(s, 'title', None)}
+                _, sources_map = await self_heal_notebooklm(client, nb_id, nb_name)
                 notebook_sources_cache[nb_id] = {
                     'name': nb_name,
                     'sources_map': sources_map
                 }
-                print(f"Loaded NotebookLM [{nb_name} - V2]: {len(sources)} existing source(s).")
+                print(f"Loaded NotebookLM [{nb_name} - V2]: {len(sources_map)} existing source(s).")
             except Exception as e:
-                print(f"Warning: Failed to fetch sources for [{nb_name} - V2]: {e}")
+                print(f"Warning: Failed to fetch/heal sources for [{nb_name} - V2]: {e}")
                 notebook_sources_cache[nb_id] = {'name': nb_name, 'sources_map': {}}
 
         print("\nStarting Audio Merge, Drive Upload, and NotebookLM Ingestion...\n")
