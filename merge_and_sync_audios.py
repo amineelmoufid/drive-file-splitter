@@ -16,7 +16,7 @@ sys.path.append(r"c:\Users\amine\Documents\antigravity\charming-newton")
 
 from notebooklm import NotebookLMClient
 from split_drive import get_drive_service, list_all_files, download_file, upload_file, mask_title, OUTPUT_FOLDER_ID
-from sync_notebooklm import NOTEBOOKS, classify_file
+from sync_notebooklm import NOTEBOOKS, classify_file, setup_notebooklm_storage
 
 AUDIO3_FOLDER_ID = os.environ.get('AUDIO3_FOLDER_ID', '1iqXltmHyKeAQuCcnMinnEIsV_OBV-uDJ')
 TEMP_AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_audio_merge")
@@ -324,6 +324,7 @@ async def main():
     print(f"Existing files in 'audio 3' folder: {len(existing_drive_map)}\n")
 
     # 2. Connect to NotebookLM
+    setup_notebooklm_storage()
     custom_timeout = httpx.Timeout(connect=30.0, read=300.0, write=300.0, pool=30.0)
     async with NotebookLMClient.from_storage(upload_timeout=custom_timeout) as client:
         print("Connected to NotebookLM.")
@@ -364,20 +365,25 @@ async def main():
                 break
 
             masked = mask_title(canonical_name)
-            if not nb_name or nb_name not in NOTEBOOKS:
-                print(f"[SKIP UNCLASSIFIED] {masked}")
-                continue
+            is_classified = bool(nb_name and nb_name in NOTEBOOKS)
 
-            nb_id = NOTEBOOKS[nb_name]['id']
-            cache = notebook_sources_cache.get(nb_id, {})
-            sources_map = cache.get('sources_map', {})
+            if is_classified:
+                nb_id = NOTEBOOKS[nb_name]['id']
+                cache = notebook_sources_cache.get(nb_id, {})
+                sources_map = cache.get('sources_map', {})
+            else:
+                nb_id = None
+                sources_map = {}
 
             canonical_lower = canonical_name.lower()
             drive_match_name = next((k for k in existing_drive_map if k.lower() == canonical_lower), None)
             need_drive_upload = drive_match_name is None
 
-            nb_match_name = next((k for k in sources_map if k.lower() == canonical_lower), None)
-            need_notebooklm_upload = nb_match_name is None
+            if is_classified:
+                nb_match_name = next((k for k in sources_map if k.lower() == canonical_lower), None)
+                need_notebooklm_upload = nb_match_name is None
+            else:
+                need_notebooklm_upload = False  # Do not export unclassified files to NotebookLM
 
             # Sub-part names that should be cleaned up if they exist as separate obsolete files
             # (e.g. 'marche 4.1.opus' and 'marche 4.2.opus' when 'marche 4.opus' is created)
@@ -403,22 +409,24 @@ async def main():
                         except Exception as ce:
                             print(f"  Notice: could not delete obsolete Drive file {drive_frag_key}: {ce}")
 
-                    nb_frag_key = next((k for k in sources_map if k.lower() == frag_lower and k.lower() != canonical_lower), None)
-                    if nb_frag_key:
-                        try:
-                            print(f"  Cleaning obsolete fragmented source from NotebookLM: {mask_title(nb_frag_key)}")
-                            await client.sources.delete(nb_id, sources_map[nb_frag_key])
-                            del sources_map[nb_frag_key]
-                            total_cleaned += 1
-                        except Exception as ce:
-                            print(f"  Notice: could not delete obsolete NotebookLM source {nb_frag_key}: {ce}")
+                    if is_classified and nb_id:
+                        nb_frag_key = next((k for k in sources_map if k.lower() == frag_lower and k.lower() != canonical_lower), None)
+                        if nb_frag_key:
+                            try:
+                                print(f"  Cleaning obsolete fragmented source from NotebookLM: {mask_title(nb_frag_key)}")
+                                await client.sources.delete(nb_id, sources_map[nb_frag_key])
+                                del sources_map[nb_frag_key]
+                                total_cleaned += 1
+                            except Exception as ce:
+                                print(f"  Notice: could not delete obsolete NotebookLM source {nb_frag_key}: {ce}")
 
                 total_skipped += 1
                 continue
 
             sub_count = len(lesson_info['sub_lessons'])
             total_file_count = len(lesson_info['raw_files'])
-            print(f"\n[PROCESSING] '{masked}' ({sub_count} sub-lesson(s), {total_file_count} total file(s)) -> Target: [{nb_name} - V2]")
+            target_desc = f"[{nb_name} - V2]" if is_classified else "Drive 'audio 3' only (No NotebookLM)"
+            print(f"\n[PROCESSING] '{masked}' ({sub_count} sub-lesson(s), {total_file_count} total file(s)) -> Target: {target_desc}")
             processed_count += 1
             local_merged_path = os.path.join(TEMP_AUDIO_DIR, canonical_name)
 
@@ -438,8 +446,8 @@ async def main():
                 else:
                     print(f"  Already present in Drive 'audio 3', skipping Drive upload.")
 
-                # Step C: Export/Upload to NotebookLM V2 project if not already there
-                if need_notebooklm_upload:
+                # Step C: Export/Upload to NotebookLM V2 project if classified and not already there
+                if is_classified and need_notebooklm_upload:
                     max_retries = 3
                     uploaded_ok = False
                     for attempt in range(1, max_retries + 1):
@@ -463,6 +471,8 @@ async def main():
                                 await asyncio.sleep(4.0 * attempt)
                             else:
                                 raise upload_err
+                elif not is_classified:
+                    print(f"  Unclassified file: skipped NotebookLM export as requested.")
                 else:
                     print(f"  Already present in NotebookLM [{nb_name} - V2], skipping.", flush=True)
 
@@ -479,15 +489,16 @@ async def main():
                         except Exception as ce:
                             print(f"  Notice: could not delete obsolete Drive file {drive_frag_key}: {ce}")
 
-                    nb_frag_key = next((k for k in sources_map if k.lower() == frag_lower and k.lower() != canonical_lower), None)
-                    if nb_frag_key:
-                        try:
-                            print(f"  Cleaning obsolete fragmented source from NotebookLM: {mask_title(nb_frag_key)}")
-                            await client.sources.delete(nb_id, sources_map[nb_frag_key])
-                            del sources_map[nb_frag_key]
-                            total_cleaned += 1
-                        except Exception as ce:
-                            print(f"  Notice: could not delete obsolete NotebookLM source {nb_frag_key}: {ce}")
+                    if is_classified and nb_id:
+                        nb_frag_key = next((k for k in sources_map if k.lower() == frag_lower and k.lower() != canonical_lower), None)
+                        if nb_frag_key:
+                            try:
+                                print(f"  Cleaning obsolete fragmented source from NotebookLM: {mask_title(nb_frag_key)}")
+                                await client.sources.delete(nb_id, sources_map[nb_frag_key])
+                                del sources_map[nb_frag_key]
+                                total_cleaned += 1
+                            except Exception as ce:
+                                print(f"  Notice: could not delete obsolete NotebookLM source {nb_frag_key}: {ce}")
 
             except Exception as e:
                 total_failed += 1
